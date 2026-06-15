@@ -195,6 +195,11 @@ numeri e PR sono benvenuti. La regola del progetto: **un cambiamento alla volta,
 confronto sui dati** — ogni modifica va annotata in `MODIFICHE.md` dicendo se migliora o
 peggiora, e perché.
 
+## Contatti
+
+Per informazioni, collaborazioni o per unirti allo sviluppo:
+**Giovanni Canclini** — [info@giovannicanclini.com](mailto:info@giovannicanclini.com)
+
 ## Licenza
 
 [Apache License 2.0](LICENSE) — uso libero, anche commerciale, con concessione esplicita
