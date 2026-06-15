@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "burel"
+version = "0.1.0"
+description = "LLM privato con architettura HOPE (Titans MAC + Nested Learning / Test-Time Training)"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "torch>=2.1",
+    "numpy",
+    "pyyaml",
+    "requests",
+    "tqdm",
+    "tokenizers>=0.15",
+    "datasets>=2.14",
+]
+
+[project.scripts]
+burel-prepare = "burel.data:prepare"
+burel-train = "burel.training:main"
+
+[tool.setuptools.packages.find]
+include = ["burel*"]

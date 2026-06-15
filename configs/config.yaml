@@ -1,0 +1,60 @@
+# config.yaml — Burel
+# Iperparametri pensati per Colab (T4/L4) + budget di poche decine di euro.
+# Con Test-Time Training (gradienti di 2 ordine) il costo per token e' alto:
+# tieni il modello piccolo e num_mem_levels/chunk_size contenuti.
+
+# Dataset attivo. "shakespeare" = fase 1 (char-level). "tinystories" = fase 2
+# (BPE byte-level). Cambiare dataset = cambiare solo questa sezione: l'architettura
+# resta identica. prepare() rigenera la cache solo se questa sezione cambia.
+data:
+  name: tinystories
+  vocab_size: 16000        # BPE byte-level; entra in uint16 (<= 65535)
+  max_train_tokens: 100000000   # cap: ~100M token, abbondanti per ~20M param in mezza giornata di T4
+  max_val_tokens: 1000000
+  # Cache del dataset su Drive (Colab): prepara UNA volta, poi ogni retrain
+  # ripristina train.bin/val.bin/tokenizer da qui invece di ri-scaricare/ri-encodare.
+  # Il notebook lo punta sul tuo Drive. Vuoto/None -> nessuna cache su Drive.
+  drive_cache_dir: /content/drive/MyDrive/Burel_data
+
+model:
+  d_model: 384
+  nhead: 4
+  num_encoder_layers: 6
+  dim_feedforward: 1536
+  dropout: 0.2
+  chunk_size: 16
+  persistent_length: 4
+  max_memory_length: 256   # = block_size: contesto massimo del modello
+  num_mem_levels: 3        # livelli di memoria continua (nested)
+  memory_depth: 2
+  mem_lr: 0.0001
+  use_silu: true
+  tie_weights: true
+
+train:
+  block_size: 256          # deve essere multiplo di chunk_size e <= max_memory_length
+  batch_size: 16           # REGIME v2 PROVATO. Il batch 48 (mai validato con la memoria nested /
+                           # TTT 2 ordine) ha dato stallo: torniamo a 16, l'unica variabile vs v2
+                           # diventa il DATASET. Il batch si riscala SOLO dopo che questo impara.
+  learning_rate: 0.0003    # regime v2 (porto' Shakespeare a 1.54). Il bump a 6e-4 non ha mosso nulla.
+  max_iters: 40000         # corpus molto piu' grande di Shakespeare; la patience ferma al plateau
+  warmup_iters: 200
+  min_lr: 0.00003
+  grad_clip: 1.0
+  eval_interval: 250       # come v2: read piu' fini per diagnosi rapida
+  eval_iters: 50
+  patience: 10             # early stop: ferma dopo N eval senza nuovo best (0 = disattivo)
+  dtype: fp32              # fp32 (stabile per i grad di 2 ordine) | fp16 | bf16
+  seed: 1337
+  out_dir: checkpoints     # relativo alla radice del progetto
+  # Backup automatico su Google Drive (Colab): se Drive e' montato, copia li' i .pt
+  drive_backup_dir: /content/drive/MyDrive/Burel_checkpoints
+  # Resume: "auto" riprende da burel_last.pt (locale o Drive) se esiste;
+  # "none" parte da zero; oppure un path esplicito a un .pt
+  resume: auto
+
+sample:
+  start: "Once upon a time"   # avvio naturale per TinyStories (per Shakespeare: "ROMEO:" ecc.)
+  max_new_tokens: 500
+  temperature: 0.8
+  top_k: 200

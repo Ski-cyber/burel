@@ -1,0 +1,7 @@
+torch>=2.1
+numpy
+pyyaml
+requests
+tqdm
+tokenizers>=0.15   # BPE byte-level (fase 2: TinyStories, poi codice)
+datasets>=2.14     # streaming di TinyStories da HuggingFace

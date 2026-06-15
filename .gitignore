@@ -1,0 +1,13 @@
+data_cache/
+checkpoints/
+__pycache__/
+*.pyc
+*.pt
+*.bin
+.venv/
+*.egg-info/
+build/
+dist/
+.DS_Store
+.idea/
+.claude/
