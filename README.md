@@ -108,10 +108,20 @@ Burel/
 │   │   └── trainer.py      # loop, resume, best/last checkpoints + Drive backup
 │   └── inference/
 │       └── sampler.py      # load_model, generate_text
+├── study_vanilla/         # SEPARATE parameter-matched vanilla Transformer (the A/B baseline)
+│   ├── model.py           # VanillaGPT (~20.4M params, full attention, no memory)
+│   ├── train.py           # nanoGPT-style trainer (Drive backup + resume)
+│   └── eval_loss_by_chunk.py
+├── experiments/           # open lab notebook: each test has a README + Colab notebook + zip
+│   ├── 01_ttt_ablation/   # memory ON vs OFF (done, with results)
+│   └── 02_vanilla_ab/     # nested vs vanilla at equal params (in progress)
+├── make_bundles.sh        # rebuild the experiments' reproducibility zips
 ├── scripts/
 │   ├── prepare_data.py     # python scripts/prepare_data.py
 │   ├── train.py            # python scripts/train.py
-│   └── generate.py         # python scripts/generate.py --prompt "..."
+│   ├── generate.py         # python scripts/generate.py --prompt "..."
+│   ├── ablation_ttt.py     # experiment 01: Test-Time Training ON/OFF ablation
+│   └── compare_three.py    # experiment 02: Burel-ON / Burel-OFF / Vanilla, same windows
 └── tests/
     ├── test_causal.py              # strict-causality proof (max|delta|=0)
     └── test_tokenizer_roundtrip.py # lossless BPE round-trip
@@ -178,9 +188,33 @@ at positions ≤ t bit-identical (`max|delta| = 0`).
 1. **[done]** architecture + training (resume, early stop) + inference, causality verified.
 2. **[done]** Phase 1 — TinyShakespeare char-level: plausible English at character level.
 3. **[done]** Phase 2 — TinyStories + BPE: coherent stories with a complete arc (v2, val 2.48).
-4. **[next]** rigorous A/B **nested vs vanilla Transformer** at equal parameters/data →
-   the central test of the hypothesis (see above).
-5. **[future]** larger corpora, code-gen, and community-driven growth.
+4. **[done]** Experiment 01 — **Test-Time Training ablation** (memory ON vs OFF): the
+   nested memory's test-time learning is confirmed to do real work, and it generalizes to
+   an unseen domain. See [`experiments/01_ttt_ablation/`](experiments/01_ttt_ablation/).
+5. **[in progress]** Experiment 02 — rigorous A/B **nested vs vanilla Transformer** at equal
+   parameters/data → the central test of the hypothesis. See
+   [`experiments/02_vanilla_ab/`](experiments/02_vanilla_ab/) and
+   [`study_vanilla/`](study_vanilla/).
+6. **[future]** larger corpora, code-gen, and community-driven growth.
+
+## Experiments & reproducibility
+
+Burel keeps an **open lab notebook** in [`experiments/`](experiments/). Each experiment
+folder has a plain-English README (question → method → result, caveats included), a
+**Colab notebook**, and a **self-contained zip** — drop the zip in your Google Drive, open
+the notebook, press run. You don't even need to clone the repo to reproduce a result.
+
+- [**01 — Test-Time Training ablation**](experiments/01_ttt_ablation/): is the nested
+  memory's "learning while reading" real? We flip one switch (memory ON vs OFF) on the same
+  model and windows. **Result:** yes — the memory adapts as it reads (it improves deeper
+  into the text; with the memory frozen it doesn't), and it generalizes to unseen code. With
+  honest caveats: it's a proof of *mechanism*, and the ON-vs-OFF gap isn't the final word.
+- [**02 — nested vs vanilla**](experiments/02_vanilla_ab/) *(in progress)*: the decisive
+  test. A plain Transformer with the **same parameter count and data** is the real opponent.
+  If Burel's memory beats it, the bet pays off; if not, we scale the plain Transformer. We
+  say which, on the numbers.
+
+To rebuild the zips after changing the code: `bash make_bundles.sh`.
 
 ## Contributing
 

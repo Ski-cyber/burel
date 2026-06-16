@@ -1,0 +1,37 @@
+# study_vanilla/config.yaml — vanilla GPT baseline, parameter-matched to BurelLM.
+#
+# Fairness contract for the A/B: SAME data, SAME context (256), SAME optimization budget
+# (batch 16, lr 3e-4, ~20k iters) as Burel's proven v3 run. The ONLY difference vs Burel
+# is the architecture. (The vanilla could legitimately use a much larger batch — that is
+# part of its efficiency advantage — but we hold batch=16 to isolate one variable.)
+
+model:
+  d_model: 384
+  n_head: 6
+  n_layer: 8          # -> ~20.43M params (Burel ~20.17M). Set 7 for ~18.66M if you want under.
+  d_ff: 1536          # 4 * d_model (standard)
+  context: 256        # = Burel max_memory_length
+  dropout: 0.2
+  activation: gelu    # standard GPT; 'silu' to match Burel's activation exactly
+  tie_weights: true
+
+train:
+  block_size: 256
+  batch_size: 16          # mirrors Burel's proven regime (one variable = architecture)
+  learning_rate: 0.0003
+  max_iters: 20000        # ~equal token budget to Burel's best run (~19250 iters)
+  warmup_iters: 200
+  min_lr: 0.00003
+  weight_decay: 0.1
+  grad_clip: 1.0
+  eval_interval: 250
+  eval_iters: 50
+  patience: 10            # early stop after N evals with no new best (0 = disabled)
+  dtype: fp32            # fp32 for a clean apples-to-apples val number vs Burel
+  seed: 1337
+  out_dir: checkpoints_vanilla
+  drive_backup_dir: /content/drive/MyDrive/Burel_checkpoints
+  resume: auto           # auto = resume from vanilla_last.pt (local or Drive) if present
+
+data:
+  cache_dir: data_cache   # the SAME TinyStories BPE cache used by Burel
