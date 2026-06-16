@@ -16,7 +16,7 @@ No experiment is "marketing": a negative result is a result, and we say so.
 | # | question | status | result (short) |
 |---|----------|--------|----------------|
 | [01 — TTT ablation](01_ttt_ablation/) | Does test-time learning (memory adapting while it reads) actually do anything? | ✅ done | **Yes, mechanism confirmed.** Memory adapting (ON) beats frozen memory (OFF) on every chunk, and improves *while reading* — even on a domain (code) the model never saw. But ON-vs-OFF is not the final word (see below). |
-| [02 — nested vs vanilla](02_vanilla_ab/) | At **equal parameters and data**, does Burel's memory beat a plain Transformer's attention? | ⏳ running | results pending |
+| [02 — nested vs vanilla](02_vanilla_ab/) | At **equal parameters and data**, does Burel's memory beat a plain Transformer's attention? | ✅ done | **No — the vanilla wins** (val 2.0052 vs 2.4831), on every metric and both domains, including in-context adaptation, at lower cost. Pre-registered decision: scale the vanilla; TTT → research branch. |
 
 ## Why experiment 02 matters most
 

@@ -1,6 +1,6 @@
 # Experiment 02 — nested memory vs vanilla Transformer (equal parameters)
 
-**Date:** 2026-06-16 · **Status:** ⏳ training in progress, results pending
+**Date:** 2026-06-16 · **Status:** ✅ done — **thesis falsified: vanilla wins at equal parameters**
 
 ## The question, in one line
 
@@ -53,8 +53,51 @@ truly complete verdict weighs quality **and** cost (tokens/sec, FLOPs), not just
 
 ## Results
 
-> Pending — the vanilla is training now. Numbers and the three-curve table go here once the
-> run finishes, with the same honest reading we gave experiment 01.
+The vanilla baseline trained to **val 2.0052** vs Burel's **2.4831** — at equal parameters,
+data and budget. Lower is better, and these are directly comparable (same tokenizer/data).
+
+| metric | Burel (ON) | Vanilla | winner |
+|---|---:|---:|---|
+| **best val loss** (headline) | 2.4831 (ppl 11.98) | **2.0052 (ppl 7.43)** | Vanilla, by 0.48 nats (≈ −38% perplexity) |
+| CONTROL — mean loss/chunk | 2.478 | **2.007** | Vanilla, on **every** chunk (+0.11 … +0.61) |
+| UNSEEN (code) — mean loss/chunk | 9.947 | **9.572** | Vanilla, on **every** chunk |
+| in-context adaptation (chunk0→15) | +0.072 / +0.424 | **+0.575 / +0.694** | Vanilla adapts **more** |
+
+The verdict is clean and points one way. The vanilla Transformer wins on **everything**:
+absolute loss, per-chunk loss on both the seen and the unseen domain, and — the decisive
+part — **in-context adaptation itself**. Full attention specializes to the context *as it
+reads* better than Burel's Test-Time-Training memory does, for free and at lower cost (no
+second-order gradients, fully parallel, fast attention kernels).
+
+### Why
+
+Burel is not "vanilla + memory". It is "vanilla with **amputated** attention (local to each
+16-token chunk) + an expensive memory meant to stitch the cut back together." This result
+says the stitching does not recover what the cut threw away. Burel traded a cheap, powerful
+mechanism (full attention) for an expensive, weaker one (TTT).
+
+### The one honest caveat (it does not rescue Burel here)
+
+This test runs at a **256-token context**. The real case for memory architectures (Titans)
+is **long context** — thousands of tokens — where full attention gets expensive (O(n²), the
+KV-cache blows up). At 256 tokens attention is trivially cheap and clearly better, so Burel
+had no opening here. The only regime where memory might still pay is the long-context
+**cost-vs-quality frontier** (giving attention a limited context budget). That is a different,
+narrow, and still-unproven experiment — not what Burel is today.
+
+## Decision (pre-registered)
+
+The plan said it in advance: **if the A/B falsifies the thesis, scale the vanilla, not
+Burel.** So:
+
+- the **vanilla (val 2.00)** is the better, cheaper base — growth continues from there;
+- the levers for "capable + cheap to train + cheap to run" are **MoE + retrieval + data
+  quality**, on top of the vanilla;
+- **Test-Time Training becomes a research branch**, to be revisited only in the long-context
+  regime (a possible future experiment 03).
+
+A negative result is a result. The nested-learning core was a genuine, falsifiable bet; the
+data did not back it at this scale, and we say so.
 
 ## Reproduce it
 

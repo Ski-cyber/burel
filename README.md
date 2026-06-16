@@ -191,11 +191,15 @@ at positions ≤ t bit-identical (`max|delta| = 0`).
 4. **[done]** Experiment 01 — **Test-Time Training ablation** (memory ON vs OFF): the
    nested memory's test-time learning is confirmed to do real work, and it generalizes to
    an unseen domain. See [`experiments/01_ttt_ablation/`](experiments/01_ttt_ablation/).
-5. **[in progress]** Experiment 02 — rigorous A/B **nested vs vanilla Transformer** at equal
-   parameters/data → the central test of the hypothesis. See
+5. **[done]** Experiment 02 — rigorous A/B **nested vs vanilla Transformer** at equal
+   parameters/data. **Result: the vanilla wins** (val 2.0052 vs 2.4831), on every metric and
+   both domains, including in-context adaptation — at lower cost. The pre-registered decision
+   follows: scale the vanilla, treat Test-Time Training as a research branch. See
    [`experiments/02_vanilla_ab/`](experiments/02_vanilla_ab/) and
    [`study_vanilla/`](study_vanilla/).
-6. **[future]** larger corpora, code-gen, and community-driven growth.
+6. **[next]** grow from the vanilla base: larger corpora, **MoE + retrieval + data quality**
+   (the levers for capable-yet-cheap), code-gen, and community-driven growth. Possible
+   experiment 03: revisit memory only in the long-context cost-vs-quality regime.
 
 ## Experiments & reproducibility
 
@@ -209,10 +213,11 @@ the notebook, press run. You don't even need to clone the repo to reproduce a re
   model and windows. **Result:** yes — the memory adapts as it reads (it improves deeper
   into the text; with the memory frozen it doesn't), and it generalizes to unseen code. With
   honest caveats: it's a proof of *mechanism*, and the ON-vs-OFF gap isn't the final word.
-- [**02 — nested vs vanilla**](experiments/02_vanilla_ab/) *(in progress)*: the decisive
-  test. A plain Transformer with the **same parameter count and data** is the real opponent.
-  If Burel's memory beats it, the bet pays off; if not, we scale the plain Transformer. We
-  say which, on the numbers.
+- [**02 — nested vs vanilla**](experiments/02_vanilla_ab/): the decisive test. A plain
+  Transformer with the **same parameter count and data** is the real opponent. **Result: the
+  vanilla wins** (val 2.0052 vs 2.4831) on every metric and both domains — so, as
+  pre-registered, we scale the vanilla and demote Test-Time Training to a research branch. A
+  negative result is a result.
 
 To rebuild the zips after changing the code: `bash make_bundles.sh`.
 
