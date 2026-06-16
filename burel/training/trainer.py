@@ -1,16 +1,16 @@
 # burel/training/trainer.py
 #
-# Training loop nanoGPT-style per BurelLM (HOPE / nested learning a pieno giro).
-# Cross-entropy next-token. Logica invariata; percorsi centralizzati in burel.paths.
+# nanoGPT-style training loop for BurelLM (HOPE / full nested learning).
+# Next-token cross-entropy. Logic unchanged; paths centralized in burel.paths.
 #
-# Checkpoint (in <out_dir> e, se Drive montato, anche in drive_backup_dir):
-#   burel_best.pt  -> miglior val loss
-#   burel_last.pt  -> ultimo stato (model + optimizer + iter) per il RESUME
+# Checkpoints (in <out_dir> and, if Drive is mounted, also in drive_backup_dir):
+#   burel_best.pt  -> best validation loss so far
+#   burel_last.pt  -> latest state (model + optimizer + iter) used for RESUME
 #
-# Note Test-Time Training:
-#   - Flash/mem-efficient attention disabilitate: i grad di 2 ordine
-#     (create_graph=True) falliscono con quei kernel.
-#   - dtype fp32 di default per stabilita'.
+# Test-Time Training notes:
+#   - Flash/mem-efficient attention are disabled: second-order gradients
+#     (create_graph=True) fail with those kernels.
+#   - fp32 dtype by default for numerical stability.
 
 import math
 import os
@@ -26,11 +26,15 @@ from burel.model import BurelLM, count_parameters
 from burel.paths import CACHE_DIR, DEFAULT_CONFIG, resolve
 
 
+# Load the YAML run configuration (model + training hyperparameters).
 def load_config(path=DEFAULT_CONFIG):
     with open(path) as f:
         return yaml.safe_load(f)
 
 
+# Sample a random minibatch of contiguous token windows. For each of batch_size
+# random start positions, x is a block_size-long slice and y is the same slice
+# shifted by one token (the next-token targets).
 def get_batch(data, block_size, batch_size, device):
     ix = torch.randint(len(data) - block_size - 1, (batch_size,))
     x = torch.stack([torch.from_numpy(data[i:i + block_size].astype(np.int64)) for i in ix])
@@ -38,6 +42,8 @@ def get_batch(data, block_size, batch_size, device):
     return x.to(device), y.to(device)
 
 
+# Learning-rate schedule: linear warmup followed by cosine decay down to min_lr,
+# clamped to min_lr after max_iters.
 def lr_at(it, cfg):
     warmup, max_it = cfg["warmup_iters"], cfg["max_iters"]
     lr, min_lr = cfg["learning_rate"], cfg["min_lr"]
@@ -51,13 +57,15 @@ def lr_at(it, cfg):
 
 
 def drive_dir_if_mounted(drive_dir):
-    """Ritorna drive_dir se il mount Drive (la sua cartella padre) esiste, altrimenti None."""
+    """Return drive_dir if the Drive mount (its parent folder) exists, otherwise None."""
     if not drive_dir:
         return None
     parent = os.path.dirname(drive_dir.rstrip("/")) or "/"
     return drive_dir if os.path.isdir(parent) else None
 
 
+# Save the checkpoint locally and, if a Drive dir is given, also back it up there.
+# Returns True only if the Drive backup succeeded.
 def save_checkpoint(state, out_dir, drive_dir, fname):
     torch.save(state, os.path.join(out_dir, fname))
     if drive_dir:
@@ -70,12 +78,14 @@ def save_checkpoint(state, out_dir, drive_dir, fname):
     return False
 
 
+# Resolve which checkpoint to resume from. None/"none"/""/False -> no resume;
+# an explicit path -> that file if it exists; "auto" -> look up burel_last.pt.
 def find_resume_path(resume, out_dir, drive_dir):
     if resume in (None, "none", "", False):
         return None
     if resume != "auto":
         return resume if os.path.exists(resume) else None
-    # auto: cerca burel_last.pt prima in locale, poi su Drive
+    # auto: look for burel_last.pt locally first, then on Drive
     for base in (out_dir, drive_dir):
         if base:
             cand = os.path.join(base, "burel_last.pt")
@@ -84,6 +94,8 @@ def find_resume_path(resume, out_dir, drive_dir):
     return None
 
 
+# Estimate mean loss over each split by averaging across eval_iters random
+# minibatches. Runs in eval mode under no_grad, then restores train mode.
 @torch.no_grad()
 def estimate_loss(model, splits, cfg_t, device):
     model.eval()
@@ -99,6 +111,8 @@ def estimate_loss(model, splits, cfg_t, device):
     return out
 
 
+# Entry point: build the dataset/model/optimizer, optionally resume, then run the
+# train/eval/checkpoint loop until max_iters (or early stopping triggers).
 def main(config_path=DEFAULT_CONFIG):
     cfg = load_config(config_path)
     mc, tc = cfg["model"], cfg["train"]
@@ -106,14 +120,16 @@ def main(config_path=DEFAULT_CONFIG):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cuda":
+        # Force the math SDP kernel: flash/mem-efficient attention do not support
+        # the second-order gradients (create_graph=True) used by test-time training.
         torch.backends.cuda.enable_flash_sdp(False)
         torch.backends.cuda.enable_mem_efficient_sdp(False)
         torch.backends.cuda.enable_math_sdp(True)
         torch.backends.cuda.matmul.allow_tf32 = True
     print(f"device={device}")
 
-    # Idempotente: rigenera la cache solo se la config 'data' e' cambiata.
-    # Cosi' cambiare dataset (shakespeare <-> tinystories) basta in config.
+    # Idempotent: regenerate the cache only if the 'data' config changed.
+    # This way switching dataset (shakespeare <-> tinystories) is just a config edit.
     prepare(cfg)
     with open(CACHE_DIR / "meta.pkl", "rb") as f:
         vocab_size = pickle.load(f)["vocab_size"]
@@ -137,10 +153,10 @@ def main(config_path=DEFAULT_CONFIG):
     dtype = tc["dtype"]
     use_amp = device == "cuda" and dtype in ("fp16", "bf16")
     amp_dtype = torch.bfloat16 if dtype == "bf16" else torch.float16
-    # GradScaler solo per fp16 (fp32/bf16 -> disabilitato, no-op). Costruzione robusta alle
-    # versioni di torch: API moderna torch.amp.GradScaler('cuda', ...) se disponibile,
-    # altrimenti la classica torch.cuda.amp.GradScaler. Stesso oggetto, stessi default,
-    # stessa matematica: nessuna differenza di comportamento nei training fp16.
+    # GradScaler only for fp16 (fp32/bf16 -> disabled, no-op). Construction is robust
+    # across torch versions: use the modern torch.amp.GradScaler('cuda', ...) API if
+    # available, otherwise the classic torch.cuda.amp.GradScaler. Same object, same
+    # defaults, same math: no behavioral difference in fp16 training.
     scaler_enabled = use_amp and dtype == "fp16"
     try:
         scaler = torch.amp.GradScaler("cuda", enabled=scaler_enabled)
@@ -160,8 +176,8 @@ def main(config_path=DEFAULT_CONFIG):
     resume_path = find_resume_path(tc.get("resume", "auto"), out_dir, drive_dir)
     if resume_path:
         ck = torch.load(resume_path, map_location=device, weights_only=False)
-        # Compatibilita': stesso vocabolario E stessa architettura. Un checkpoint v1
-        # (es. d_model diverso) NON viene caricato su un modello v2 -> niente crash.
+        # Compatibility: same vocabulary AND same architecture. A v1 checkpoint
+        # (e.g. different d_model) is NOT loaded onto a v2 model -> no crash.
         compatible = (ck.get("vocab_size") == vocab_size
                       and ck.get("config", {}).get("model") == mc)
         if compatible:
@@ -180,6 +196,8 @@ def main(config_path=DEFAULT_CONFIG):
     if not resumed:
         print("Training da zero.")
 
+    # Assemble a full checkpoint dict: model + optimizer + scaler state plus the
+    # config and bookkeeping (iter, current/best val loss) needed to resume.
     def make_state(it, val_loss):
         return {
             "model": model.state_dict(),
@@ -189,16 +207,18 @@ def main(config_path=DEFAULT_CONFIG):
             "iter": it, "val_loss": val_loss, "best_val": best_val,
         }
 
-    patience = tc.get("patience", 0) or 0  # 0 = early stop disattivo
-    no_improve = 0  # eval consecutivi senza nuovo best
+    patience = tc.get("patience", 0) or 0  # 0 = early stopping disabled
+    no_improve = 0  # consecutive evals without a new best
 
     model.train()
     pbar = tqdm(range(start_iter, tc["max_iters"] + 1), initial=start_iter,
                 total=tc["max_iters"], desc="training", dynamic_ncols=True)
     for it in pbar:
+        # Apply the scheduled learning rate for this iteration to every param group.
         for g in optimizer.param_groups:
             g["lr"] = lr_at(it, tc)
 
+        # Periodic evaluation: estimate train/val loss, track the best, checkpoint.
         if it % tc["eval_interval"] == 0:
             losses = estimate_loss(model, splits, tc, device)
             msg = f"iter {it}: train {losses['train']:.4f} | val {losses['val']:.4f}"
@@ -209,21 +229,24 @@ def main(config_path=DEFAULT_CONFIG):
                 msg += "  -> nuovo best salvato"
             else:
                 no_improve += 1
-            # 'last' sempre, per il resume (perdi al massimo eval_interval iter su crash)
+            # Always save 'last' for resume (a crash loses at most eval_interval iters).
             save_checkpoint(make_state(it, losses["val"]), out_dir, drive_dir, "burel_last.pt")
-            pbar.write(msg)  # stampa sopra la barra senza romperla
+            pbar.write(msg)  # print above the bar without breaking it
 
             if patience and no_improve >= patience:
                 pbar.write(f"early stop: nessun miglioramento da {patience} eval "
                            f"(best val {best_val:.4f}). burel_best.pt ha il modello migliore.")
                 break
 
+        # The final iteration is eval-only; stop before doing another update step.
         if it == tc["max_iters"]:
             break
 
+        # One optimization step on a fresh minibatch.
         x, y = get_batch(splits["train"], tc["block_size"], tc["batch_size"], device)
         optimizer.zero_grad(set_to_none=True)
         if use_amp:
+            # Mixed-precision path: autocast forward, scaled backward, unscale, clip, step.
             with torch.amp.autocast("cuda", dtype=amp_dtype):
                 _, loss = model(x, y)
             scaler.scale(loss).backward()
@@ -232,6 +255,7 @@ def main(config_path=DEFAULT_CONFIG):
             scaler.step(optimizer)
             scaler.update()
         else:
+            # Full-precision path: plain forward/backward, gradient clipping, step.
             _, loss = model(x, y)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), tc["grad_clip"])

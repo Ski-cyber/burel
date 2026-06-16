@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "burel"
 version = "0.1.0"
-description = "LLM privato con architettura HOPE (Titans MAC + Nested Learning / Test-Time Training)"
+description = "Open language model with HOPE architecture (Titans MAC + Nested Learning / Test-Time Training)"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [

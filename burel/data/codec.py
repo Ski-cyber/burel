@@ -1,12 +1,12 @@
 # burel/data/codec.py
 #
-# Codec testo <-> id, DISACCOPPIATO dal modello. Serve a tenere un solo sampler
-# valido sia per il char-level (Shakespeare) sia per il BPE (TinyStories, e poi
-# il codice). Il modello non cambia: vede sempre interi; qui si traduce.
+# Text <-> id codec, DECOUPLED from the model. Lets us keep a single sampler that
+# works for both char-level (Shakespeare) and BPE (TinyStories, and later code).
+# The model doesn't change: it always sees integers; the translation happens here.
 #
-# Il tipo di codifica e' scritto in meta.pkl ("encoding"):
-#   - "char": usa stoi/itos (vecchio comportamento, identico bit-per-bit);
-#   - "bpe" : carica data_cache/<tokenizer_file> con la libreria `tokenizers`.
+# The encoding type is recorded in meta.pkl ("encoding"):
+#   - "char": uses stoi/itos (old behavior, bit-for-bit identical);
+#   - "bpe" : loads data_cache/<tokenizer_file> via the `tokenizers` library.
 
 from functools import lru_cache
 
@@ -14,9 +14,10 @@ from burel.paths import CACHE_DIR
 
 
 def encode(meta, text):
-    """Testo -> lista di id interi, secondo l'encoding dichiarato in meta."""
+    """Text -> list of integer ids, per the encoding declared in meta."""
     enc = meta.get("encoding", "char")
     if enc == "char":
+        # Char-level: map each char via stoi, defaulting unknown chars to id 0.
         stoi = meta["stoi"]
         return [stoi.get(c, 0) for c in text]
     if enc == "bpe":
@@ -26,9 +27,10 @@ def encode(meta, text):
 
 
 def decode(meta, ids):
-    """Lista di id interi -> testo, secondo l'encoding dichiarato in meta."""
+    """List of integer ids -> text, per the encoding declared in meta."""
     enc = meta.get("encoding", "char")
     if enc == "char":
+        # Char-level: join the chars looked up via itos.
         itos = meta["itos"]
         return "".join(itos[int(i)] for i in ids)
     if enc == "bpe":
@@ -37,9 +39,10 @@ def decode(meta, ids):
     raise ValueError(f"encoding sconosciuto in meta: {enc!r}")
 
 
+# Cache loaded tokenizers so repeated encode/decode calls don't reread the file.
 @lru_cache(maxsize=4)
 def _load_tokenizer(tokenizer_file):
-    # Import locale: `tokenizers` serve solo per i dataset BPE, non per il
-    # char-level. Risolto sempre dentro CACHE_DIR -> portabile tra locale/Drive/Colab.
+    # Local import: `tokenizers` is needed only for BPE datasets, not for the
+    # char-level one. Always resolved inside CACHE_DIR -> portable across local/Drive/Colab.
     from tokenizers import Tokenizer
     return Tokenizer.from_file(str(CACHE_DIR / tokenizer_file))

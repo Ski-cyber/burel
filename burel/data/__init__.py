@@ -1,10 +1,10 @@
-# burel/data/ — preparazione dati e codec, disaccoppiati dal modello.
+# burel/data/ — data preparation and codec, decoupled from the model.
 #
-# prepare(cfg) sceglie il dataset in base a configs/config.yaml -> data.name:
-#   - "shakespeare": char-level (fase 1, baseline);
-#   - "tinystories": BPE byte-level (fase 2).
-# Entrambi producono lo stesso contratto su disco (train.bin/val.bin uint16 +
-# meta.pkl), quindi trainer.py e inference NON cambiano.
+# prepare(cfg) picks the dataset based on configs/config.yaml -> data.name:
+#   - "shakespeare": char-level (phase 1, baseline);
+#   - "tinystories": byte-level BPE (phase 2).
+# Both produce the same on-disk contract (train.bin/val.bin uint16 + meta.pkl),
+# so trainer.py and inference DON'T change.
 
 import yaml
 
@@ -18,14 +18,15 @@ __all__ = ["prepare", "load_meta", "load_split", "encode", "decode", "URL"]
 
 
 def prepare(cfg=None):
-    """Prepara il dataset scelto in config. Idempotente: i moduli rigenerano la
-    cache solo se la config dati e' cambiata. cfg=None -> carica DEFAULT_CONFIG."""
+    """Prepare the dataset selected in config. Idempotent: the modules regenerate
+    the cache only if the data config has changed. cfg=None -> load DEFAULT_CONFIG."""
     if cfg is None:
         with open(DEFAULT_CONFIG) as f:
             cfg = yaml.safe_load(f)
     dc = (cfg or {}).get("data", {}) or {}
     name = dc.get("name", "shakespeare")
 
+    # Dispatch to the right preparer, forwarding only the config keys it accepts.
     if name == "shakespeare":
         kw = {k: dc[k] for k in ("val_frac",) if k in dc}
         return _prepare_shakespeare(**kw)

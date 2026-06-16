@@ -1,21 +1,21 @@
 # burel/data/tinystories.py
 #
-# Dataset TinyStories (HuggingFace roneneldan/TinyStories) con tokenizer BPE
-# ByteLevel. Stessa interfaccia su disco di shakespeare.py:
+# TinyStories dataset (HuggingFace roneneldan/TinyStories) with a byte-level BPE
+# tokenizer. Same on-disk interface as shakespeare.py:
 #   data_cache/train.bin, val.bin  (uint16)  + meta.pkl  + tokenizer.json
-# => trainer.py e load_split/load_meta NON cambiano (vocab <= 16k entra in uint16).
+# => trainer.py and load_split/load_meta DON'T change (vocab <= 16k fits in uint16).
 #
-# Scelte:
-#   - BPE byte-level: nessun UNK (l'alfabeto copre tutti i 256 byte), riusabile
-#     pari pari per il codice (passo 3) senza ridisegnare la pipeline;
-#   - tra una storia e l'altra inseriamo <|endoftext|> -> il modello impara i
-#     confini inizio-svolgimento-fine (esattamente cio' che vogliamo emergere);
-#   - cap sui token (max_train_tokens): non sovra-approvvigioniamo dati che non
-#     bruciamo in mezza giornata di T4, e teniamo leggeri download e backup Drive;
-#   - cache_key in meta.pkl: prepare() e' idempotente, rigenera solo se la config
-#     dati cambia (cosi' il trainer puo' chiamarlo sempre senza rifare il lavoro);
-#   - cache su Drive (drive_cache_dir): si prepara UNA volta, e ogni retrain
-#     ripristina gli artefatti da Drive invece di ri-scaricare e ri-encodare.
+# Design choices:
+#   - byte-level BPE: no UNK (the alphabet covers all 256 bytes), reusable as-is
+#     for code (step 3) without redesigning the pipeline;
+#   - between consecutive stories we insert <|endoftext|> -> the model learns the
+#     beginning-development-end boundaries (exactly what we want to emerge);
+#   - token cap (max_train_tokens): we don't over-provision data we can't burn
+#     through in half a day on a T4, and we keep downloads and Drive backups light;
+#   - cache_key in meta.pkl: prepare() is idempotent, regenerating only if the data
+#     config changes (so the trainer can always call it without redoing the work);
+#   - Drive cache (drive_cache_dir): prepared ONCE, and every retrain restores the
+#     artifacts from Drive instead of re-downloading and re-encoding.
 
 import pickle
 import shutil
@@ -43,13 +43,13 @@ def prepare(cache_dir=CACHE_DIR, vocab_size=16000, max_train_tokens=100_000_000,
         "max_train_tokens": max_train_tokens, "max_val_tokens": max_val_tokens,
     }
 
-    # 1) Cache locale gia' valida -> niente da fare.
+    # 1) Local cache already valid -> nothing to do.
     if _artifacts_valid(cache_dir, cache_key):
         vs = _vocab_from(cache_dir)
         print(f"data_cache TinyStories valido (vocab={vs}): salto la preparazione.")
         return vs
 
-    # 2) Cache su Drive valida -> ripristino locale (niente ri-download/ri-encoding).
+    # 2) Drive cache valid -> restore locally (no re-download / re-encoding).
     drive = _drive_ready(drive_cache_dir)
     if drive and _artifacts_valid(drive, cache_key):
         print(f"Ripristino il dataset TinyStories da Drive ({drive}) ...")
@@ -58,11 +58,13 @@ def prepare(cache_dir=CACHE_DIR, vocab_size=16000, max_train_tokens=100_000_000,
         print(f"OK: dataset ripristinato da Drive (vocab={vs}), niente ri-encoding.")
         return vs
 
-    # 3) Costruzione da zero.
+    # 3) Build from scratch.
     print(f"Alleno il tokenizer BPE (vocab~{vocab_size}) su <= {tokenizer_sample_docs:,} storie ...")
     tok = _train_tokenizer(vocab_size, _iter_text("train", tokenizer_sample_docs), tok_path)
     eos_id = tok.token_to_id(EOS)
     real_vocab = tok.get_vocab_size()
+    # Guard the invariants the rest of the pipeline relies on: EOS must exist and
+    # the vocab must fit in uint16 (the on-disk .bin dtype).
     assert eos_id is not None, "token EOS mancante nel tokenizer"
     assert real_vocab <= 65535, f"vocab {real_vocab} non entra in uint16"
 
@@ -82,7 +84,7 @@ def prepare(cache_dir=CACHE_DIR, vocab_size=16000, max_train_tokens=100_000_000,
         pickle.dump(meta, f)
     print(f"OK TinyStories: vocab={real_vocab}, train={n_train:,} tok, val={n_val:,} tok")
 
-    # 4) Backup su Drive: la prossima volta si ripristina, non si ricostruisce.
+    # 4) Backup to Drive: next time we restore instead of rebuilding.
     if drive:
         print(f"Backup del dataset su Drive ({drive}) ...")
         _copy_artifacts(cache_dir, drive)
@@ -94,7 +96,7 @@ def prepare(cache_dir=CACHE_DIR, vocab_size=16000, max_train_tokens=100_000_000,
 # --- streaming + encoding ---------------------------------------------------
 
 def _iter_text(split, max_docs=None):
-    """Itera i testi di uno split, in streaming (non scarica tutto in RAM)."""
+    """Iterate over the texts of a split, streaming (does not load everything into RAM)."""
     from datasets import load_dataset
     ds = load_dataset(DATASET, split=split, streaming=True)
     for i, ex in enumerate(ds):
@@ -113,7 +115,7 @@ def _train_tokenizer(vocab_size, texts, out_path):
     trainer = trainers.BpeTrainer(
         vocab_size=vocab_size,
         special_tokens=[EOS],
-        initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),  # tutti i 256 byte -> niente UNK
+        initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),  # all 256 bytes -> no UNK
     )
     tok.train_from_iterator(texts, trainer=trainer)
     tok.save(str(out_path))
@@ -121,8 +123,8 @@ def _train_tokenizer(vocab_size, texts, out_path):
 
 
 def _encode_to_bin(texts, tok, eos_id, out_path, max_tokens, batch):
-    """Encoda i testi a batch e li scrive in append come uint16. Inserisce EOS
-    dopo ogni storia. Si ferma a max_tokens (None = nessun limite)."""
+    """Encode the texts in batches and append them as uint16. Inserts EOS after
+    every story. Stops at max_tokens (None = no limit)."""
     n = 0
     buf = []
 
@@ -132,13 +134,15 @@ def _encode_to_bin(texts, tok, eos_id, out_path, max_tokens, batch):
             return False
         for enc in tok.encode_batch(chunk):
             ids = enc.ids
-            ids.append(eos_id)
+            ids.append(eos_id)  # append the story boundary token
             a = np.asarray(ids, dtype=np.uint16)
+            # If this story would overflow the token budget, truncate to the cap,
+            # write it, and signal the caller to stop.
             if max_tokens is not None and n + len(a) > max_tokens:
                 a = a[:max_tokens - n]
                 a.tofile(f)
                 n += len(a)
-                return True  # cap raggiunto
+                return True  # cap reached
             a.tofile(f)
             n += len(a)
         return False
@@ -155,10 +159,10 @@ def _encode_to_bin(texts, tok, eos_id, out_path, max_tokens, batch):
     return n
 
 
-# --- cache locale / Drive ---------------------------------------------------
+# --- local / Drive cache ----------------------------------------------------
 
 def _artifacts_valid(d, cache_key):
-    """True se la cartella d contiene tutti gli artefatti e il cache_key combacia."""
+    """True if directory d contains all artifacts and the cache_key matches."""
     d = Path(d)
     if not all((d / n).exists() for n in ARTIFACTS):
         return False
@@ -176,7 +180,7 @@ def _vocab_from(d):
 
 
 def _drive_ready(drive_cache_dir):
-    """Ritorna il Path se Drive sembra montato (la cartella padre esiste), altrimenti None."""
+    """Return the Path if Drive seems mounted (its parent folder exists), else None."""
     if not drive_cache_dir:
         return None
     p = Path(drive_cache_dir)

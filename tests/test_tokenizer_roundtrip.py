@@ -1,13 +1,13 @@
 #!/usr/bin/env python
-"""Self-test del tokenizer BPE byte-level e del codec, eseguibile dove `tokenizers`
-e' installato (es. Colab). Verifica le proprieta' che ci servono:
+"""Self-test for the byte-level BPE tokenizer and codec, runnable wherever
+`tokenizers` is installed (e.g. Colab). It checks the properties we rely on:
 
-  1. round-trip lossless: decode(encode(x)) == x  (il byte-level non perde nulla);
-  2. tutti gli id stanno nel vocabolario e entrano in uint16;
-  3. il token <|endoftext|> esiste e ha un id valido.
+  1. lossless round-trip: decode(encode(x)) == x  (byte-level loses nothing);
+  2. all ids fall within the vocabulary and fit in uint16;
+  3. the <|endoftext|> token exists and has a valid id.
 
-Non scarica TinyStories: allena un BPE minuscolo su testo sintetico, cosi' gira
-in un secondo. Se `tokenizers` manca, il test si salta (non fallisce).
+It does not download TinyStories: it trains a tiny BPE on synthetic text, so it
+runs in a second. If `tokenizers` is missing, the test is skipped (not failed).
 
     python tests/test_tokenizer_roundtrip.py
 """
@@ -15,6 +15,7 @@ in un secondo. Se `tokenizers` manca, il test si salta (non fallisce).
 import pathlib
 import sys
 
+# Make the repo root importable so `burel` resolves regardless of cwd.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 
@@ -22,11 +23,14 @@ def main():
     try:
         from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
     except ImportError:
+        # `tokenizers` is an optional dependency; skip gracefully when absent.
         print("SKIP: `tokenizers` non installato (pip install tokenizers).")
         return
 
+    # Reuse the project's end-of-sequence special token so ids match production.
     from burel.data.tinystories import EOS
 
+    # Small synthetic corpus repeated to give the BPE trainer enough material.
     corpus = [
         "Once upon a time there was a little cat named Tom.",
         "The cat liked to play in the garden every morning.",
@@ -34,6 +38,7 @@ def main():
         "He played with the ball until the sun went down. The end.",
     ] * 50
 
+    # Byte-level BPE: every byte is representable, so encoding can never fail.
     tok = Tokenizer(models.BPE(unk_token=None))
     tok.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
     tok.decoder = decoders.ByteLevel()
@@ -46,9 +51,10 @@ def main():
     eos_id = tok.token_to_id(EOS)
     vocab = tok.get_vocab_size()
     assert eos_id is not None, "EOS mancante"
+    # Token ids are stored as uint16 in the .bin files, so the vocab must fit.
     assert vocab <= 65535, f"vocab {vocab} non entra in uint16"
 
-    # round-trip lossless su testo dentro e fuori dominio (byte-level => sempre ok)
+    # Lossless round-trip on in-domain and out-of-domain text (byte-level => always ok).
     for s in ["Once upon a time, the cat ran!", "Zxq-42 \n\t £€ unseen chars 9876"]:
         ids = tok.encode(s).ids
         assert all(0 <= i < vocab for i in ids), "id fuori range"

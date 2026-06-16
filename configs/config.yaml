@@ -1,19 +1,19 @@
 # config.yaml — Burel
-# Iperparametri pensati per Colab (T4/L4) + budget di poche decine di euro.
-# Con Test-Time Training (gradienti di 2 ordine) il costo per token e' alto:
-# tieni il modello piccolo e num_mem_levels/chunk_size contenuti.
+# Hyper-parameters tuned for Colab (T4/L4) on a budget of a few tens of euros.
+# With Test-Time Training (2nd-order gradients) the per-token cost is high:
+# keep the model small and num_mem_levels/chunk_size modest.
 
-# Dataset attivo. "shakespeare" = fase 1 (char-level). "tinystories" = fase 2
-# (BPE byte-level). Cambiare dataset = cambiare solo questa sezione: l'architettura
-# resta identica. prepare() rigenera la cache solo se questa sezione cambia.
+# Active dataset. "shakespeare" = phase 1 (char-level). "tinystories" = phase 2
+# (byte-level BPE). Switching dataset means changing ONLY this section: the
+# architecture stays identical. prepare() rebuilds the cache only if this section changes.
 data:
   name: tinystories
-  vocab_size: 16000        # BPE byte-level; entra in uint16 (<= 65535)
-  max_train_tokens: 100000000   # cap: ~100M token, abbondanti per ~20M param in mezza giornata di T4
+  vocab_size: 16000        # byte-level BPE; fits in uint16 (<= 65535)
+  max_train_tokens: 100000000   # cap: ~100M tokens, plenty for ~20M params in half a day of T4
   max_val_tokens: 1000000
-  # Cache del dataset su Drive (Colab): prepara UNA volta, poi ogni retrain
-  # ripristina train.bin/val.bin/tokenizer da qui invece di ri-scaricare/ri-encodare.
-  # Il notebook lo punta sul tuo Drive. Vuoto/None -> nessuna cache su Drive.
+  # Dataset cache on Drive (Colab): prepare ONCE, then every retrain restores
+  # train.bin/val.bin/tokenizer from here instead of re-downloading/re-encoding.
+  # The notebook points this at your Drive. Empty/None -> no Drive cache.
   drive_cache_dir: /content/drive/MyDrive/Burel_data
 
 model:
@@ -24,37 +24,37 @@ model:
   dropout: 0.2
   chunk_size: 16
   persistent_length: 4
-  max_memory_length: 256   # = block_size: contesto massimo del modello
-  num_mem_levels: 3        # livelli di memoria continua (nested)
+  max_memory_length: 256   # = block_size: the model's maximum context
+  num_mem_levels: 3        # continuum (nested) memory levels
   memory_depth: 2
   mem_lr: 0.0001
   use_silu: true
   tie_weights: true
 
 train:
-  block_size: 256          # deve essere multiplo di chunk_size e <= max_memory_length
-  batch_size: 16           # REGIME v2 PROVATO. Il batch 48 (mai validato con la memoria nested /
-                           # TTT 2 ordine) ha dato stallo: torniamo a 16, l'unica variabile vs v2
-                           # diventa il DATASET. Il batch si riscala SOLO dopo che questo impara.
-  learning_rate: 0.0003    # regime v2 (porto' Shakespeare a 1.54). Il bump a 6e-4 non ha mosso nulla.
-  max_iters: 40000         # corpus molto piu' grande di Shakespeare; la patience ferma al plateau
+  block_size: 256          # must be a multiple of chunk_size and <= max_memory_length
+  batch_size: 16           # PROVEN v2 REGIME. Batch 48 (never validated with nested memory /
+                           # 2nd-order TTT) caused a stall: back to 16, so the only variable vs v2
+                           # is the DATASET. Scale the batch ONLY after this learns.
+  learning_rate: 0.0003    # v2 regime (took Shakespeare to 1.54). Bumping to 6e-4 moved nothing.
+  max_iters: 40000         # corpus much larger than Shakespeare; patience stops at the plateau
   warmup_iters: 200
   min_lr: 0.00003
   grad_clip: 1.0
-  eval_interval: 250       # come v2: read piu' fini per diagnosi rapida
+  eval_interval: 250       # like v2: finer reads for quick diagnosis
   eval_iters: 50
-  patience: 10             # early stop: ferma dopo N eval senza nuovo best (0 = disattivo)
-  dtype: fp32              # fp32 (stabile per i grad di 2 ordine) | fp16 | bf16
+  patience: 10             # early stop: stop after N evals with no new best (0 = disabled)
+  dtype: fp32              # fp32 (stable for 2nd-order grads) | fp16 | bf16
   seed: 1337
-  out_dir: checkpoints     # relativo alla radice del progetto
-  # Backup automatico su Google Drive (Colab): se Drive e' montato, copia li' i .pt
+  out_dir: checkpoints     # relative to the project root
+  # Automatic backup to Google Drive (Colab): if Drive is mounted, copy the .pt there
   drive_backup_dir: /content/drive/MyDrive/Burel_checkpoints
-  # Resume: "auto" riprende da burel_last.pt (locale o Drive) se esiste;
-  # "none" parte da zero; oppure un path esplicito a un .pt
+  # Resume: "auto" resumes from burel_last.pt (local or Drive) if it exists;
+  # "none" starts from scratch; or an explicit path to a .pt
   resume: auto
 
 sample:
-  start: "Once upon a time"   # avvio naturale per TinyStories (per Shakespeare: "ROMEO:" ecc.)
+  start: "Once upon a time"   # natural opening for TinyStories (for Shakespeare: "ROMEO:" etc.)
   max_new_tokens: 500
   temperature: 0.8
   top_k: 200

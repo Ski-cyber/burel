@@ -3,5 +3,5 @@ numpy
 pyyaml
 requests
 tqdm
-tokenizers>=0.15   # BPE byte-level (fase 2: TinyStories, poi codice)
-datasets>=2.14     # streaming di TinyStories da HuggingFace
+tokenizers>=0.15   # byte-level BPE (phase 2: TinyStories, then code)
+datasets>=2.14     # streaming of TinyStories from HuggingFace
